@@ -1,0 +1,131 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  username     String   @unique
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  gamePlayers      GamePlayer[]
+  hostedGames      Game[]              @relation("GameHost")
+  czarRounds       Round[]             @relation("RoundCzar")
+  wonRounds        Round[]             @relation("RoundWinner")
+  roundSubmissions RoundSubmission[]
+
+  @@map("users")
+}
+
+enum CardType {
+  BLACK
+  WHITE
+}
+
+model Card {
+  id   String   @id @default(uuid())
+  type CardType
+  text String
+  pick Int      @default(1) // Number of white cards to pick (for black cards)
+
+  blackCardRounds      Round[]                    @relation("BlackCard")
+  roundSubmissionCards RoundSubmissionCard[]
+
+  @@map("cards")
+}
+
+enum GameStatus {
+  WAITING    // Lobby - waiting for players
+  PICKING    // Players choosing cards
+  JUDGING    // Czar judging responses
+  ROUND_END  // Showing round winner
+  GAME_END   // Game finished
+}
+
+model Game {
+  id           String     @id @default(uuid())
+  code         String     @unique @db.VarChar(6)
+  status       GameStatus @default(WAITING)
+  currentRound Int        @default(0) @map("current_round")
+  pointsToWin  Int        @default(7) @map("points_to_win")
+  hostId       String     @map("host_id")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  host    User         @relation("GameHost", fields: [hostId], references: [id])
+  players GamePlayer[]
+  rounds  Round[]
+
+  @@map("games")
+}
+
+model GamePlayer {
+  id       String @id @default(uuid())
+  gameId   String @map("game_id")
+  userId   String @map("user_id")
+  score    Int    @default(0)
+  hand     Json   @default("[]") // Array of card IDs in player's hand
+  isReady  Boolean @default(false) @map("is_ready")
+  isActive Boolean @default(true) @map("is_active") // For tracking disconnections
+
+  game Game @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  roundSubmissions RoundSubmission[]
+
+  @@unique([gameId, userId])
+  @@map("game_players")
+}
+
+model Round {
+  id          String  @id @default(uuid())
+  gameId      String  @map("game_id")
+  roundNumber Int     @map("round_number")
+  blackCardId String  @map("black_card_id")
+  czarId      String  @map("czar_id")
+  winnerId    String? @map("winner_id")
+
+  game        Game              @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  blackCard   Card              @relation("BlackCard", fields: [blackCardId], references: [id])
+  czar        User              @relation("RoundCzar", fields: [czarId], references: [id])
+  winner      User?             @relation("RoundWinner", fields: [winnerId], references: [id])
+  submissions RoundSubmission[]
+
+  @@unique([gameId, roundNumber])
+  @@map("rounds")
+}
+
+model RoundSubmission {
+  id           String @id @default(uuid())
+  roundId      String @map("round_id")
+  gamePlayerId String @map("game_player_id")
+  userId       String @map("user_id")
+
+  round      Round                 @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  gamePlayer GamePlayer            @relation(fields: [gamePlayerId], references: [id], onDelete: Cascade)
+  user       User                  @relation(fields: [userId], references: [id])
+  cards      RoundSubmissionCard[]
+
+  @@unique([roundId, gamePlayerId])
+  @@map("round_submissions")
+}
+
+model RoundSubmissionCard {
+  id           String @id @default(uuid())
+  submissionId String @map("submission_id")
+  cardId       String @map("card_id")
+  order        Int    // Order of the card in the submission
+
+  submission RoundSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  card       Card            @relation(fields: [cardId], references: [id])
+
+  @@unique([submissionId, cardId])
+  @@map("round_submission_cards")
+}
